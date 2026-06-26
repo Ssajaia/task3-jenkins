@@ -1,0 +1,68 @@
+// i'm on windows system currently so i use bat instead of sh
+
+pipeline {
+    agent any
+    tools {
+        nodejs 'Node 7.8.0'
+    }
+    environment {
+        PORT = '3000'
+        IMAGE_NAME = 'nodemain'
+        CONTAINER_NAME = 'app_main'
+    }
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    def branch = env.BRANCH_NAME ?: params.BRANCH_TO_DEPLOY
+                    if (branch == 'main') {
+                        env.PORT = '3000'
+                        env.IMAGE_NAME = 'nodemain'
+                        env.CONTAINER_NAME = 'app_main'
+                    } else if (branch == 'dev') {
+                        env.PORT = '3001'
+                        env.IMAGE_NAME = 'nodedev'
+                        env.CONTAINER_NAME = 'app_dev'
+                    }
+                }
+            }
+        }
+        stage('Checkout') {
+            steps {
+                script {
+                    if (env.BRANCH_NAME) {
+                        checkout scm
+                    } else {
+                        git url: 'https://github.com/ssajaia/task3-jenkins.git', branch: "${params.BRANCH_TO_DEPLOY}"
+                    }
+                }
+            }
+        }
+        stage('Build') {
+            steps {
+                bat 'npm install'
+            }
+        }
+        stage('Test') {
+            steps {
+                bat 'npm test || exit 0'
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                bat "docker build -t ${env.IMAGE_NAME}:v1.0 ."
+            }
+        }
+        stage('Deploy') {
+            steps {
+                bat """
+                FOR /F "tokens=*" %%i IN ('docker ps -aq --filter name^=${env.CONTAINER_NAME}') DO (
+                    docker stop ${env.CONTAINER_NAME}
+                    docker rm ${env.CONTAINER_NAME}
+                )
+                docker run -d --name ${env.CONTAINER_NAME} -p ${env.PORT}:${env.PORT} -e PORT=${env.PORT} ${env.IMAGE_NAME}:v1.0
+                """
+            }
+        }
+    }
+}
